@@ -58,6 +58,52 @@ lsp_goto_definition src/myclass.cpp ClassName::methodName
 lsp_find_references src/myclass.h ClassName
 ```
 
+### Qt Translation Assistant Skills
+
+#### [qt-translation-assistant](qt-translation-assistant/)
+
+**Purpose**: Automated translation tool for Qt projects using AI models to translate TS (Translation Source) files with subagent architecture.
+
+**When to use**: User requests translating Qt project localization files (TS files), automating translation workflows, or setting up multilingual support for Qt applications.
+
+**Key features**:
+- Smart parsing of TS files to identify incomplete translations
+- Subagent architecture for improved performance and error isolation
+- Support for multiple AI providers (OpenAI, Anthropic, DeepSeek, local servers)
+- Batch processing for efficient translation of multiple strings
+- Language-specific translation guidance (scripts, RTL, etc.)
+- Consistency preservation across translations
+
+**Architecture**:
+- **Main Skill**: Handles TS file parsing and result writing
+- **Translation Subagent**: Handles AI API calls independently
+- **Coordinator**: Manages communication between main skill and subagent
+
+**Resources**:
+- `SKILL.md` - Skill documentation
+- `translate.py` - Main script with subagent architecture
+- `subagent/` - Translation subagent module
+- `config_tool.py` - Interactive configuration tool
+- `config_template.json` - Configuration template
+
+**Usage**:
+```bash
+# Translate entire directory of TS files
+python translate.py /path/to/ts/files/
+
+# Translate specific file
+python translate.py /path/to/ts/files/ /path/to/specific/file.ts
+
+# With custom batch size
+python translate.py --batch-size 20 /path/to/ts/files/
+
+# Create configuration file
+python translate.py --config
+
+# Direct subagent usage
+python -m subagent.translation_subagent --config config.json --strings "Hello" "World" --language zh-CN
+```
+
 ## Dependencies
 
 ### Framework Skill
