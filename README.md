@@ -8,30 +8,115 @@ This directory contains a collection of skills for deepin project development, c
 
 ### Qt/C++ Unit Testing Skills
 
-#### [qt-cpp-unittest-framework](qt-cpp-unittest-framework/)
+#### [qt-unittest-build](qt-unittest-build/) ⭐ **推荐**
 
-**Purpose**: Generate complete Google Test framework with stub-ext mock tools and automated build/run scripts.
+**Purpose**: 为 Qt 项目自动生成单元测试框架，采用"固定脚本 + 动态AI"架构。
 
-**When to use**: User requests setting up unit test infrastructure, generating autotest framework, or initializing Google Test framework for Qt/C++ CMake projects.
+**When to use**: 用户请求为 Qt 项目设置单元测试框架，或需要自动化生成 CMake 配置和测试文件时。
 
 **Key features**:
-- Intelligent project structure analysis
-- Local stub-ext resources (bundled with skill)
-- Adapted CMake configuration
-- Automated test runner (5-step process)
-- Coverage report generation
+- **全自动流程**: 1句话即可完成，无需手动步骤
+- **扁平化架构**: Skill 路由 + 子 Agent 全栈执行，无中间层
+- **内置模板**: CMakeLists.txt、测试文件、stub-ext 工具、运行脚本全部内置
+- **智能分析**: 自动识别项目结构、Qt 版本、第三方依赖
+- **多框架支持**: Qt Test、Google Test、Catch2 任选
 
 **Resources**:
-- `SKILL.md` - Skill documentation
-- `setup-autotest-framework.sh` - Framework generation script
-- `resources/testutils/` - Local stub-ext source files
+- `SKILL.md` - 技能文档（任务路由器）
+- `.opencode/agent/qt-unit-test-executor.md` - 子 Agent（全栈执行者）
+- `README.md` - 详细使用文档
 
 **Usage**:
 ```bash
-~/.claude/skills/qt-cpp-unittest-framework/setup-autotest-framework.sh -p /path/to/project
-cd autotests
+# 在 OpenCode 中直接输入
+请为当前项目生成单元测试框架
+
+# 或显式调用
+使用 qt-unittest-build 技能
+```
+
+**执行流程**:
+1. Skill 触发 → 子 Agent 自动调用
+2. 项目分析 → CMakeLists.txt、依赖、Qt 版本
+3. 文件生成 → tests/ 目录、CMake 配置、测试文件
+4. 用户确认 → write 工具询问确认
+5. 完成 → 提供构建和运行命令
+
+**与 qt-cpp-unittest-framework 对比**:
+- ✅ 1句话 vs 5-6步手动流程
+- ✅ 扁平化 vs 多脚本 + 占位符
+- ✅ 内置模板 vs 模板文件 + 手动替换
+- ✅ 自动 AI vs 手动 AI 交互
+- ✅ 单文件维护 vs 多文件同步
+
+#### [qt-cpp-unittest-framework](qt-cpp-unittest-framework/)（已过时）
+
+**Purpose**: Generate Google Test framework with stub-ext mock tools and AI-assisted CMake configuration for Qt/C++ projects.
+
+**When to use**: User requests setting up unit test infrastructure, generating autotest framework, or initializing Google Test framework for Qt/C++ CMake projects.
+
+**Key features (v5.0.0)**:
+- **AI-assisted CMakeLists.txt generation**: Analyzes project dependencies, structure, and includes to generate adaptive configuration
+- **Universal directory structure support**: Adapts to actual project structure (components, modules, apps, application, src, libs, etc.)
+- **Local stub-ext resources**: Bundled with skill, no external downloads required
+- **Fixed process automation**: Scripts handle directories, stub tools, test runners, and prompt generation
+- **Smart project detection**: Supports diverse source directory names and flat/nested structures
+- **AI prompt templates**: Provides structured prompts for AI-based project analysis and CMake generation
+
+**Resources**:
+- `SKILL.md` - Complete skill documentation (v5.0.0)
+- `setup-autotest-framework.sh` - Framework generation script (v5.0.0)
+- `scripts/detect-project.sh` - Enhanced project detection (supports 9+ directory types)
+- `scripts/copy-stubs.sh` - Stub tools copy
+- `scripts/generate-cmake-utils.sh` - CMake utilities (outputs to autotests/cmake/)
+- `scripts/generate-runner.sh` - Test runner generation
+- `scripts/generate-readme.sh` - README generation
+- `ai-prompts/analyze-project.md` - AI prompt for project analysis
+- `ai-prompts/generate-cmake.md` - AI prompt for CMakeLists.txt generation
+- `OPTIMIZATION_SUMMARY.md` - Detailed optimization summary and verification results
+- `QUICK_START.md` - Quick start guide for users
+
+**Usage**:
+```bash
+# Generate base framework
+/path/to/qt-cpp-unittest-framework/setup-autotest-framework.sh -p /path/to/project
+
+# Review AI prompts
+cd /path/to/project/autotests
+cat .ai_prompts/analyze-project.md    # See detected structure
+cat .ai_prompts/generate-cmake.md       # See CMake generation rules
+
+# Use AI to analyze and generate CMakeLists.txt
+# (See QUICK_START.md for detailed steps)
+
+# Run tests
 ./run-ut.sh
 ```
+
+**v5.0.0 Improvements**:
+- ✅ Removed hardcoded libs/plugins/services assumptions
+- ✅ Added support for 9+ source directory types (application, apps, base, common, controls, components)
+- ✅ Extended file extensions (.cc, .hpp, .cxx)
+- ✅ Handles flat source structures (no subdirectories)
+- ✅ Handles special cases (source directory has no submodules with sources)
+- ✅ Moved UnitTestUtils.cmake to autotests/cmake/ (logical location)
+- ✅ Enhanced exclusion rules (build, cmake, debian, doc*, assets, resources)
+- ✅ AI-based CMakeLists.txt generation (adaptive to project)
+- ✅ Comprehensive documentation (optimization summary, quick start guide)
+
+**Supported Project Structures**:
+- Standard: `src/module1/`, `src/module2/`
+- Flat: `src/*.cpp`, `src/*.h`
+- Functional: `application/*.cpp`, `application/module/`
+- Type-based: `base/`, `common/`, `controls/`
+- Component-based: `components/`, `modules/`
+- Mixed: Multiple source directories in project root
+
+**Known Limitations**:
+- Test subdirectories (`autotests/module/`) not auto-created (requires AI generation)
+- CMakeLists.txt files not auto-generated (requires AI execution)
+- Multi-source directories detected (first one used primarily)
+- Third-party dependencies detected by AI analysis (not script)
 
 #### [qt-cpp-unittest-generation](qt-cpp-unittest-generation/)
 
