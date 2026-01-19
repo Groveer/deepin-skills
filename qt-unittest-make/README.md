@@ -6,10 +6,11 @@
 
 - **100% 函数覆盖率**: 自动为每个 public/protected 函数生成测试用例
 - **智能 LSP 分析**: 使用 `lsp_document_symbols`, `lsp_goto_definition`, `lsp_find_references` 精确分析类结构
-- **Stub 智能生成**: 基于 UNIT_TEST_GUIDE.md 自动生成 UI、信号、虚函数、重载函数的 Stub
-- **智能 CMake 合并**: 根据项目具体情况优化 CMake 配置，确保通用性
+- **Stub 智能生成**: 内化完整的 Stub 模式库，自动生成 UI、信号、虚函数、重载函数的 Stub
+- **智能 CMake 合并**: 根据项目具体情况优化合并，确保通用性
 - **支持增量更新**: 对比现有测试，补全未覆盖的函数
-- **必须验证构建**: 生成后自动验证 cmake 编译，确保测试可运行
+- **强制验证构建**: 生成后必须编译成功才能报告完成
+- **严谨错误处理**: 每个编译错误最多重试 3 次，最大循环 10 次
 
 ## 与 qt-unittest-build 的关系
 
@@ -19,6 +20,7 @@ qt-unittest-build (构建框架)
 
 qt-unittest-make (生成测试代码)
     ↓ 生成测试用例（100% 函数覆盖率）
+    ↓ 验证构建（必须成功才能报告完成）
 ```
 
 **协作流程**:
@@ -42,7 +44,7 @@ qt-unittest-make (生成测试代码)
 4. 生成测试用例（100% 函数覆盖率）
 5. 生成 Stub 插桩（UI、信号、虚函数等）
 6. 智能合并 CMake 配置
-7. 验证构建（cmake 编译）
+7. 验证构建（必须成功才能报告完成）
 
 **输出**:
 ```
@@ -216,6 +218,70 @@ target_include_directories(test_{module_name}
 gtest_discover_tests(test_{module_name})
 ```
 
+## 验证构建（强制性）
+
+### 编译验证流程
+
+1. **创建构建目录**: `mkdir -p build-autotests && cd build-autotests`
+2. **配置 CMake**: `cmake .. -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTS=ON`
+3. **编译测试**: `cmake --build . -j$(nproc)`
+4. **错误处理**:
+   - 提取所有编译错误
+   - 分类每个错误（链接、头文件、Stub、类型、CMake）
+   - **每个错误最多重试 3 次**
+   - 所有错误都修正后重新编译
+   - **最大循环 10 次**（防止无限循环）
+5. **编译成功**: 报告完成 ✅
+6. **编译失败**: 报告详细的错误分析和修正建议 ✗
+
+### 编译错误重试逻辑
+
+**重要**: 重试逻辑是"**每个错误重试 3 次**"，不是全局 3 次。
+
+**示例**:
+```
+编译错误：
+- 错误1: undefined reference to QWidget::show
+- 错误2: stub.set_lamda 编译失败
+
+重试逻辑：
+- 错误1: 尝试1 -> 失败, 尝试2 -> 失败, 尝试3 -> 成功
+- 错误2: 尝试1 -> 成功
+
+重新编译 -> 成功
+```
+
+**循环控制**:
+```
+while (还有编译错误 && 循环次数 < 10) {
+    对于每个错误 {
+        if (该错误重试次数 < 3) {
+            应用修正
+            重试次数++
+        } else {
+            标记为"无法自动修正"
+        }
+    }
+
+    如果有"无法自动修正"的错误 {
+        跳出循环，报告失败
+    }
+
+    重新编译
+    循环次数++
+}
+```
+
+### 常见编译错误及修正
+
+| 错误类型 | 匹配模式 | 原因 | 修正方案 |
+|---------|---------|------|---------|
+| 链接错误 | `undefined reference to` | 缺少库链接 | 添加 `target_link_libraries(Qt${QT_VERSION}::Widgets)` |
+| 头文件错误 | `No such file or directory` | 缺少头文件路径 | 添加 `target_include_directories(${{CMAKE_SOURCE_DIR}}/autotests/3rdparty/stub)` |
+| Stub 签名错误 | `stub.set_lamda` 编译失败 | 函数签名不匹配 | 使用 LSP 重新获取函数签名 |
+| 类型错误 | `expected primary-expression` | 返回类型或参数类型错误 | 检查 LSP 分析结果 |
+| CMake 语法错误 | `CMake Error` | CMakeLists.txt 语法错误 | 检查 CMakeLists.txt |
+
 ## 测试用例设计
 
 ### AAA 模式
@@ -235,65 +301,11 @@ TEST_F(MyClassTest, Method_Scenario_Result) {
 }
 ```
 
-### 测试用例分类
-
-#### 1. 基本功能测试
-```cpp
-TEST_F(MyClassTest, Calculate_TwoNumbers_ReturnsSum) {
-    EXPECT_EQ(obj->calculate(2, 3), 5);
-}
-```
-
-#### 2. 边界条件测试
-```cpp
-TEST_F(MyClassTest, Calculate_MaximumValue_ClampsCorrectly) {
-    EXPECT_EQ(obj->calculate(INT_MAX, 1), INT_MAX);
-}
-
-TEST_F(MyClassTest, Process_EmptyInput_ReturnsDefault) {
-    EXPECT_EQ(obj->process(""), "default");
-}
-```
-
-#### 3. 错误处理测试
-```cpp
-TEST_F(MyClassTest, Process_NullInput_HandlesGracefully) {
-    EXPECT_NO_THROW(obj->process(nullptr));
-}
-
-TEST_F(MyClassTest, Process_InvalidInput_ThrowsException) {
-    EXPECT_THROW(obj->process("invalid"), std::runtime_error);
-}
-```
-
-#### 4. 特殊场景测试
-```cpp
-TEST_F(MyClassTest, Process_SpecialCharacters_HandlesCorrectly) {
-    QString input = "test & % $";
-    EXPECT_NO_THROW(obj->process(input));
-}
-```
-
-## 验证构建
-
-**自动验证**:
-```bash
-cd build-autotests
-cmake .. -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTS=ON
-cmake --build . -j$(nproc)
-```
-
-**预期输出**:
-- `Configuring done`
-- `Generating done`
-- `Built target test_{module_name}`
-- 无错误
-
 ## 常见问题
 
-### Q: 为什么只支持 Google Test？
+### Q: 编译错误重试逻辑是什么？
 
-A: 为了简化技能设计，确保测试质量。Google Test 提供了丰富的断言宏和测试发现功能，适合 Qt 项目。
+A: **每个编译错误最多重试 3 次**，不是全局 3 次。所有错误都修正后重新编译，最大循环 10 次防止无限循环。
 
 ### Q: 如何处理复杂的依赖关系？
 
@@ -322,6 +334,13 @@ A:
 3. 计算未覆盖函数
 4. 为未覆盖函数追加测试用例
 
+### Q: 编译失败会怎么办？
+
+A:
+1. 技能会自动尝试修正（每个错误最多重试 3 次）
+2. 如果 10 次循环后仍失败，会报告详细的错误分析和修正建议
+3. 绝不会告诉用户"测试已生成"（如果编译失败）
+
 ## 与其他技能的对比
 
 | 特性 | qt-unittest-build | qt-unittest-make | qt-cpp-unittest-generation |
@@ -332,7 +351,8 @@ A:
 | **CMake** | 自动生成 | 智能合并 | 无 |
 | **覆盖率要求** | 无 | 100% | 无 |
 | **增量更新** | 不支持 | 支持 | 不支持 |
-| **构建验证** | 可选 | 必须 | 无 |
+| **构建验证** | 可选 | **必须成功才能报告** | 无 |
+| **错误重试** | 无 | **每个错误重试 3 次** | 无 |
 
 ## 依赖要求
 

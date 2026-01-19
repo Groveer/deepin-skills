@@ -18,7 +18,7 @@ permission:
 
 为指定的模块或类生成单元测试，满足以下要求：
 - **100% 函数覆盖率**: 每个 public/protected 函数至少一个测试用例
-- **智能 CMake 合并**: 根据项目具体情况优化合并，确保通用性
+- **智能 CMake 合并**: 根据项目实际情况优化合并，确保通用性
 - **支持增量更新**: 对比现有测试，补全未覆盖函数
 - **必须验证构建**: 生成后运行 cmake 编译，确保可运行
 
@@ -127,9 +127,18 @@ TEST_F({ClassName}Test, {MethodName}_Basic_ReturnsExpected) {
 
 #### 步骤 5: 生成 Stub 插桩
 
-基于 UNIT_TEST_GUIDE.md 规范：
+**使用 LSP 精确获取函数签名**，然后生成对应的 Stub。
 
-**UI 显示/隐藏**:
+**判断是否需要 Stub**:
+1. 如果类继承 QWidget，添加 `&QWidget::show`, `&QWidget::hide`
+2. 如果类继承 QDialog，添加 `VADDR(QDialog, exec)`
+3. 如果函数调用其他类的方法，添加对应的 stub
+4. 如果是虚函数，使用 VADDR 宏
+5. 如果是重载函数，使用 static_cast
+
+**Stub 模式库**（内化内容）：
+
+**1. UI 显示/隐藏（QWidget）**:
 ```cpp
 stub.set_lamda(&QWidget::show, [](QWidget *) {
     __DBG_STUB_INVOKE__
@@ -138,9 +147,19 @@ stub.set_lamda(&QWidget::show, [](QWidget *) {
 stub.set_lamda(&QWidget::hide, [](QWidget *) {
     __DBG_STUB_INVOKE__
 });
+
+stub.set_lamda(&QWidget::height, [](QWidget *) -> int {
+    __DBG_STUB_INVOKE__
+    return 600;  // Mock 高度
+});
+
+stub.set_lamda(&QWidget::width, [](QWidget *) -> int {
+    __DBG_STUB_INVOKE__
+    return 800;  // Mock 宽度
+});
 ```
 
-**对话框执行**:
+**2. 对话框执行（QDialog）**:
 ```cpp
 stub.set_lamda(VADDR(QDialog, exec), [] {
     __DBG_STUB_INVOKE__
@@ -148,47 +167,95 @@ stub.set_lamda(VADDR(QDialog, exec), [] {
 });
 ```
 
-**信号监听**:
+**3. 信号监听（QSignalSpy）**:
 ```cpp
+// 定义信号监听器
 QSignalSpy spy(obj, &{ClassName}::{SignalName});
+
 // 触发信号
 // 验证
 EXPECT_EQ(spy.count(), 1);
 EXPECT_EQ(spy.at(0).at(0).toInt(), expected);
 ```
 
-**虚函数**:
+**4. 虚函数（VADDR 宏）**:
 ```cpp
-stub.set_lamda(VADDR({ClassName}, {MethodName}), [] {
+stub.set_lamda(VADDR({ClassName}, {MethodName}), []() {
     __DBG_STUB_INVOKE__
+});
+
+// 如果需要控制返回值
+stub.set_lamda(VADDR({ClassName}, {MethodName}), []() -> int {
+    __DBG_STUB_INVOKE__
+    return 42;
 });
 ```
 
-**重载函数**:
+**5. 重载函数（static_cast）**:
 ```cpp
 stub.set_lamda(
-    static_cast<{ReturnType} ({ClassName}::*)({Args})>(&{ClassName}::{MethodName}),
-    []({ClassName} *self, {Args}) {
+    static_cast<int ({ClassName}::*)(int, int)>(&{ClassName}::{MethodName}),
+    []({ClassName} *self, int a, int b) -> int {
         __DBG_STUB_INVOKE__
-        return {ReturnValue};
+        return a + b;
     }
 );
 ```
 
-**外部依赖**:
+**6. 外部依赖**:
 ```cpp
-stub.set_lamda(&ExternalClass::method, [](ExternalClass *self, ...) {
+// 外部类的方法
+stub.set_lamda(&ExternalClass::method, [](ExternalClass *self, QString param) {
     __DBG_STUB_INVOKE__
-    return {MockValue};
+    EXPECT_EQ(param, "expected");
+    return true;
+});
+
+// 全局函数
+stub.set_lamda(qPrintable, [](const QString &str) -> const char* {
+    __DBG_STUB_INVOKE__
+    static QString mockResult;
+    mockResult = "mock: " + str;
+    return mockResult.toLocal8Bit().constData();
+});
+```
+
+**7. 文件操作（QFile）**:
+```cpp
+stub.set_lamda(&QFile::open, [](QFile *self, QIODevice::OpenMode mode) -> bool {
+    __DBG_STUB_INVOKE__
+    return true;  // Mock 打开成功
+});
+
+stub.set_lamda(&QFile::readAll, [](QFile *self) -> QByteArray {
+    __DBG_STUB_INVOKE__
+    return "mock content";
+});
+```
+
+**8. 事件处理**:
+```cpp
+stub.set_lamda(&QObject::eventFilter, [](QObject *self, QObject *watched, QEvent *event) -> bool {
+    __DBG_STUB_INVOKE__
+    return false;  // 不拦截事件
+});
+
+stub.set_lamda(&QWidget::keyPressEvent, [](QWidget *self, QKeyEvent *event) {
+    __DBG_STUB_INVOKE__
+    // Mock 键盘事件处理
+});
+
+stub.set_lamda(&QWidget::mousePressEvent, [](QWidget *self, QMouseEvent *event) {
+    __DBG_STUB_INVOKE__
+    // Mock 鼠标事件处理
 });
 ```
 
 **Stub 生成策略**:
-1. 如果类继承 QWidget/QDialog，添加 UI stub
-2. 如果类有信号，添加 QSignalSpy
-3. 如果函数调用其他类的成员，添加对应的 stub
-4. 如果是虚函数，使用 VADDR 宏
-5. 如果是重载函数，使用 static_cast
+1. 对于类继承的 Qt 基类，自动生成对应的 Stub
+2. 对于虚函数，使用 LSP 获取签名，然后生成 VADDR Stub
+3. 对于重载函数，使用 LSP 识别所有重载版本，为每个版本生成 static_cast Stub
+4. 对于外部依赖，使用 lsp_find_references 查找被调用的函数，然后生成 Stub
 
 #### 步骤 6: 更新 CMake 配置
 
@@ -199,12 +266,18 @@ stub.set_lamda(&ExternalClass::method, [](ExternalClass *self, ...) {
 ```cmake
 cmake_minimum_required(VERSION 3.16)
 
+# 自动推断 Qt 版本（从项目 CMakeLists.txt）
+set(QT_VERSION "6")  # 或 "5"
+
+# 自动推断项目库名称（从项目 CMakeLists.txt）
+set(PROJECT_LIBRARIES "")
+
 # 收集所有测试文件
 file(GLOB TEST_SOURCES "test_*.cpp")
 
-# 如果没有测试文件，创建占位
 if(NOT TEST_SOURCES)
-    set(TEST_SOURCES "")
+    message(WARNING "No test files found in ${CMAKE_CURRENT_SOURCE_DIR}")
+    return()
 endif()
 
 # 创建测试可执行文件
@@ -216,17 +289,22 @@ target_link_libraries(test_{module_name}
     PRIVATE
     GTest::gtest
     GTest::gtest_main
-    Qt{QT_VERSION}::Test
-    {PROJECT_LIBRARIES}
-    {OTHER_DEPENDENCIES}
+    Qt${QT_VERSION}::Test
 )
+
+# 如果项目有自定义库，添加
+if(PROJECT_LIBRARIES)
+    target_link_libraries(test_{module_name}
+        PRIVATE
+        ${PROJECT_LIBRARIES}
+    )
+endif()
 
 # 包含目录
 target_include_directories(test_{module_name}
     PRIVATE
     ${{CMAKE_SOURCE_DIR}}/autotests/3rdparty/stub
     ${{CMAKE_SOURCE_DIR}}/{source_module_path}
-    {OTHER_INCLUDE_DIRS}
 )
 
 # 自动发现测试
@@ -334,6 +412,14 @@ TEST_F({ClassName}Test, {MethodName}_Basic_ReturnsExpected) {
 
 **必须执行**: 生成测试后，必须运行 cmake 配置和编译，确保测试可以正常运行。
 
+**强制约束**:
+- 编译必须成功，否则**不能报告任务完成**
+- 如果编译失败，必须**自我修正并重试**
+- **每个编译错误最多重试3次**（不是全局3次）
+- 所有错误都修正后重新编译
+- **最大循环10次**（防止无限循环）
+- 绝不能在编译失败时告诉用户"测试已生成"
+
 #### 步骤 1: 创建构建目录
 
 ```bash
@@ -347,26 +433,182 @@ cd build-autotests
 cmake .. -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTS=ON
 ```
 
-#### 步骤 3: 编译测试
+**预期输出**: `Configuring done`, `Generating done`
+
+**如果配置失败**:
+1. 检查 CMakeLists.txt 语法
+2. 检查依赖库是否正确
+3. 修正 CMakeLists.txt
+4. 重新配置
+
+#### 步骤 3: 编译测试（强制性检查）
 
 ```bash
 cmake --build . -j$(nproc)
 ```
 
-#### 步骤 4: 处理编译错误
+**预期输出**: `Built target test_{module_name}`, 无错误
 
-**如果编译失败**:
-1. 分析错误信息
-2. 常见错误：
-   - 缺少依赖库：添加 `target_link_libraries`
-   - 缺少头文件：添加 `target_include_directories`
-   - Stub 签名错误：使用 LSP 重新分析函数签名
-   - 类型不匹配：检查函数返回类型和参数类型
-3. 修正代码
-4. 重新编译直到成功
+**如果编译失败** - 进入错误处理流程：
 
-**如果编译成功**:
-- 运行测试（可选）：`ctest --output-on-failure -R test_{module_name}`
+##### 错误处理流程
+
+**步骤 1: 分析错误信息**
+
+从编译输出中提取所有错误：
+```
+error: undefined reference to 'QWidget::show()'
+error: stub.set_lamda(...) 编译失败
+error: 'expected primary-expression'
+```
+
+**步骤 2: 分类每个错误**
+
+| 错误类型 | 匹配模式 | 原因 |
+|---------|---------|------|
+| **链接错误** | `undefined reference to` | 缺少 `target_link_libraries` |
+| **头文件错误** | `No such file or directory` | 缺少 `target_include_directories` |
+| **Stub 签名错误** | `stub.set_lamda` 编译失败 | 函数签名不匹配 |
+| **类型错误** | `expected primary-expression` | 返回类型或参数类型错误 |
+| **CMake 语法错误** | `CMake Error` | CMakeLists.txt 语法错误 |
+| **Qt 相关错误** | `QWidget`, `QDialog` 相关 | Qt 组件未正确链接 |
+
+**步骤 3: 为每个错误生成修正方案**
+
+**链接错误** (`undefined reference to`):
+```
+错误: undefined reference to 'QWidget::show()'
+原因: 缺少 Qt Widgets 模块
+修正: 添加 target_link_libraries(test_{module_name} Qt${QT_VERSION}::Widgets)
+```
+
+**头文件错误** (`No such file or directory`):
+```
+错误: stubext.h: No such file or directory
+原因: 缺少 stub 工具目录
+修正: 添加 target_include_directories(test_{module_name} ${{CMAKE_SOURCE_DIR}}/autotests/3rdparty/stub)
+```
+
+**Stub 签名错误**:
+```
+错误: stub.set_lamda(&MyClass::method, ...) 编译失败
+原因: 函数签名不匹配（const, &, * 等修饰符）
+修正:
+1. 使用 lsp_goto_definition 重新读取函数签名
+2. 对比 Stub 签名与实际签名
+3. 修正 Stub 签名（添加 const, &, *, virtual）
+```
+
+**类型错误** (`expected primary-expression`):
+```
+错误: expected primary-expression
+原因: 返回类型或参数类型错误
+修正:
+1. 使用 LSP 检查函数返回类型
+2. 检查参数类型是否匹配
+3. 修正类型定义
+```
+
+**步骤 4: 应用修正并重试**
+
+对每个错误：
+1. 根据错误类型生成修正方案
+2. 应用修正（修改代码或 CMakeLists.txt）
+3. 记录修正内容
+4. **为该错误增加重试计数**
+5. 如果该错误重试达到3次仍未解决，标记为"无法自动修正"
+
+**步骤 5: 重新编译**
+
+所有错误都尝试修正后，重新编译：
+
+```bash
+cmake --build . -j$(nproc)
+```
+
+**步骤 6: 循环控制**
+
+**循环条件**:
+```
+while (还有编译错误 && 循环次数 < 10) {
+    对于每个错误 {
+        if (该错误重试次数 < 3) {
+            应用修正
+            重试次数++
+        } else {
+            标记为"无法自动修正"
+        }
+    }
+    
+    如果有"无法自动修正"的错误 {
+        跳出循环，报告失败
+    }
+    
+    重新编译
+    循环次数++
+}
+```
+
+**步骤 7: 编译成功**
+
+如果编译成功：
+- 记录验证成功日志
+- 准备成功报告
+- 报告完成 ✅
+
+**步骤 8: 编译失败（10次循环后仍失败）
+
+报告详细的失败信息：
+
+```
+✗ 单元测试生成失败：编译验证失败
+
+错误类型：编译失败
+循环次数：10次（达到最大限制）
+
+错误汇总：
+1. [错误1类型] [错误1信息] [重试3次，无法自动修正]
+2. [错误2类型] [错误2信息] [重试1次，已修正]
+3. [错误3类型] [错误3信息] [重试3次，无法自动修正]
+
+修正尝试：
+错误1:
+  - 尝试1: [修正内容] -> 失败
+  - 尝试2: [修正内容] -> 失败
+  - 尝试3: [修正内容] -> 失败
+
+错误2:
+  - 尝试1: [修正内容] -> 成功
+
+错误3:
+  - 尝试1: [修正内容] -> 失败
+  - 尝试2: [修正内容] -> 失败
+  - 尝试3: [修正内容] -> 失败
+
+已生成文件（可能不完整）：
+- test_myclass.cpp（编译错误，需要手动修正）
+- autotests/ui/CMakeLists.txt（可能需要调整）
+
+手动修正建议：
+1. [错误1的详细修正建议]
+2. [错误3的详细修正建议]
+
+具体修正步骤：
+1. 查看 [错误1] 和 [错误3] 的编译错误
+2. 使用 LSP 工具重新分析对应函数的签名
+3. 对比 Stub 签名与实际签名
+4. 手动修正 Stub 签名（const, &, *, virtual）
+5. 运行 cmake 编译验证
+6. 如果问题持续，检查项目依赖是否正确安装
+```
+
+#### 步骤 9: 运行测试（可选）
+
+```bash
+ctest --output-on-failure -R test_{module_name}
+```
+
+**预期输出**: `100% tests passed`
 
 ## LSP 工具使用规范
 
@@ -432,408 +674,11 @@ lsp_find_references "src/lib/ui/myclass.h" "MyClass"
 - 调用了哪些外部函数
 - 依赖的其他类
 
-## Stub 插桩生成规范
-
-### 智能判断何时需要 Stub
-
-**需要 Stub 的情况**:
-1. **UI 组件**: QWidget, QDialog, QMainWindow 的 show/hide/exec
-2. **文件操作**: QFile, QDir 的读写操作
-3. **网络请求**: QNetworkReply 的请求操作
-4. **数据库**: QSqlQuery 的查询操作
-5. **外部库调用**: 不可控的第三方库函数
-6. **虚函数**: 子类重写的父类虚函数
-7. **信号发射**: Qt 信号连接和发射
-
-### Stub 模式库
-
-#### 1. UI 显示/隐藏
-
-```cpp
-// QWidget
-stub.set_lamda(&QWidget::show, [](QWidget *) {
-    __DBG_STUB_INVOKE__
-});
-
-stub.set_lamda(&QWidget::hide, [](QWidget *) {
-    __DBG_STUB_INVOKE__
-});
-
-// QWidget 尺寸
-stub.set_lamda(&QWidget::height, [](QWidget *) -> int {
-    __DBG_STUB_INVOKE__
-    return 600;  // Mock 高度
-});
-
-stub.set_lamda(&QWidget::width, [](QWidget *) -> int {
-    __DBG_STUB_INVOKE__
-    return 800;  // Mock 宽度
-});
-```
-
-#### 2. 对话框执行
-
-```cpp
-stub.set_lamda(VADDR(QDialog, exec), [] {
-    __DBG_STUB_INVOKE__
-    return QDialog::Accepted;  // 或 QDialog::Rejected
-});
-```
-
-#### 3. 信号监听
-
-```cpp
-// 定义信号监听器
-QSignalSpy valueChangedSpy(obj, &MyClass::valueChanged);
-
-// 触发信号
-obj->setValue(42);
-
-// 验证信号发射
-EXPECT_EQ(valueChangedSpy.count(), 1);
-EXPECT_EQ(valueChangedSpy.at(0).at(0).toInt(), 42);
-```
-
-#### 4. 虚函数
-
-```cpp
-// 虚函数需要使用 VADDR 宏
-stub.set_lamda(VADDR(MyClass, virtualMethod), []() {
-    __DBG_STUB_INVOKE__
-});
-
-// 如果需要控制返回值
-stub.set_lamda(VADDR(MyClass, virtualMethod), []() -> int {
-    __DBG_STUB_INVOKE__
-    return 42;
-});
-```
-
-#### 5. 重载函数
-
-```cpp
-// 重载函数需要使用 static_cast 指定具体的重载版本
-stub.set_lamda(
-    static_cast<int (MyClass::*)(int, int)>(&MyClass::calculate),
-    [](MyClass *self, int a, int b) -> int {
-        __DBG_STUB_INVOKE__
-        return a + b;
-    }
-);
-```
-
-#### 6. 外部依赖
-
-```cpp
-// 外部类的方法
-stub.set_lamda(&ExternalClass::method, [](ExternalClass *self, QString param) {
-    __DBG_STUB_INVOKE__
-    EXPECT_EQ(param, "expected");
-    return true;
-});
-
-// 全局函数
-stub.set_lamda(qPrintable, [](const QString &str) {
-    __DBG_STUB_INVOKE__
-    return "mock output";
-});
-```
-
-#### 7. 文件操作
-
-```cpp
-// QFile 操作
-stub.set_lamda(&QFile::open, [](QFile *self, QIODevice::OpenMode mode) -> bool {
-    __DBG_STUB_INVOKE__
-    return true;  // Mock 打开成功
-});
-
-stub.set_lamda(&QFile::readAll, [](QFile *self) -> QByteArray {
-    __DBG_STUB_INVOKE__
-    return "mock content";
-});
-```
-
-#### 8. 事件处理
-
-```cpp
-// 事件过滤器
-stub.set_lamda(&QObject::eventFilter, [](QObject *self, QObject *watched, QEvent *event) -> bool {
-    __DBG_STUB_INVOKE__
-    return false;  // 不拦截事件
-});
-```
-
-## 测试用例生成规范
-
-### AAA 模式
-
-每个测试用例遵循 Arrange-Act-Assert 模式：
-
-```cpp
-TEST_F(MyClassTest, Method_Scenario_Result) {
-    // Arrange: 准备测试数据和环境
-    obj->setInput(42);
-
-    // Act: 执行被测试的操作
-    int result = obj->calculate();
-
-    // Assert: 验证结果
-    EXPECT_EQ(result, 84);
-}
-```
-
-### 测试用例分类
-
-#### 1. 基本功能测试
-
-```cpp
-TEST_F(MyClassTest, Calculate_TwoNumbers_ReturnsSum) {
-    EXPECT_EQ(obj->calculate(2, 3), 5);
-}
-```
-
-#### 2. 边界条件测试
-
-```cpp
-TEST_F(MyClassTest, Calculate_MaximumValue_ClampsCorrectly) {
-    EXPECT_EQ(obj->calculate(INT_MAX, 1), INT_MAX);
-}
-
-TEST_F(MyClassTest, Process_EmptyInput_ReturnsDefault) {
-    EXPECT_EQ(obj->process(""), "default");
-}
-```
-
-#### 3. 错误处理测试
-
-```cpp
-TEST_F(MyClassTest, Process_NullInput_HandlesGracefully) {
-    EXPECT_NO_THROW(obj->process(nullptr));
-}
-
-TEST_F(MyClassTest, Process_InvalidInput_ThrowsException) {
-    EXPECT_THROW(obj->process("invalid"), std::runtime_error);
-}
-```
-
-#### 4. 特殊场景测试
-
-```cpp
-TEST_F(MyClassTest, Process_SpecialCharacters_HandlesCorrectly) {
-    QString input = "test & % $";
-    EXPECT_NO_THROW(obj->process(input));
-}
-
-TEST_F(MyClassTest, Process_LargeData_PerformsEfficiently) {
-    QByteArray largeData(1000000, 'x');
-    auto start = std::chrono::high_resolution_clock::now();
-    obj->process(largeData);
-    auto end = std::chrono::high_resolution_clock::now();
-    EXPECT_LT(std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count(), 1000);
-}
-```
-
-#### 5. 状态转换测试
-
-```cpp
-TEST_F(MyClassTest, StateTransition_InitialToReady_Succeeds) {
-    EXPECT_EQ(obj->state(), MyClass::Initial);
-    obj->initialize();
-    EXPECT_EQ(obj->state(), MyClass::Ready);
-}
-```
-
-### 测试用例命名规范
-
-**格式**: `{Feature}_{Scenario}_{ExpectedResult}`
-
-**示例**:
-- `Calculate_TwoNumbers_ReturnsSum` - 基本功能
-- `Calculate_MaximumValue_ClampsCorrectly` - 边界条件
-- `Process_NullInput_HandlesGracefully` - 错误处理
-- `Process_SpecialCharacters_HandlesCorrectly` - 特殊场景
-
-**注意事项**:
-- Feature 使用 PascalCase（首字母大写）
-- Scenario 描述具体场景
-- ExpectedResult 描述期望结果
-
-## CMake 智能合并规范
-
-### 分析现有 CMake
-
-**步骤 1: 读取项目 CMakeLists.txt**
-
-```bash
-# 根目录 CMakeLists.txt
-read "CMakeLists.txt"
-
-# 提取信息：
-# - 项目名称: project(...)
-# - Qt 版本: find_package(Qt5/Qt6 ...)
-# - 依赖库: find_package(...)
-# - C++ 标准: CMAKE_CXX_STANDARD
-```
-
-**步骤 2: 读取现有测试 CMakeLists.txt**
-
-```bash
-# autotests/CMakeLists.txt
-read "autotests/CMakeLists.txt"
-
-# 提取信息：
-# - 测试子目录: add_subdirectory(...)
-# - CMake 变量: set(...)
-```
-
-**步骤 3: 读取测试模块的 CMakeLists.txt**
-
-```bash
-# autotests/other_module/CMakeLists.txt（如果存在）
-read "autotests/other_module/CMakeLists.txt"
-
-# 提取模式：
-# - 链接库模式: target_link_libraries
-# - 包含目录模式: target_include_directories
-# - 使用变量或硬编码
-```
-
-### 智能生成 CMakeLists.txt
-
-**模板**:
-```cmake
-cmake_minimum_required(VERSION 3.16)
-
-# 自动推断 Qt 版本（从项目 CMakeLists.txt）
-set(QT_VERSION "6")  # 或 "5"
-
-# 自动推断项目库名称（从项目 CMakeLists.txt）
-set(PROJECT_LIBRARIES "")
-
-# 收集测试文件
-file(GLOB TEST_SOURCES "test_*.cpp")
-
-if(NOT TEST_SOURCES)
-    message(WARNING "No test files found in ${CMAKE_CURRENT_SOURCE_DIR}")
-    return()
-endif()
-
-# 创建测试可执行文件
-add_executable(test_{module_name} ${TEST_SOURCES})
-
-# 链接依赖
-# 智能推断：根据项目现有的链接模式
-target_link_libraries(test_{module_name}
-    PRIVATE
-    GTest::gtest
-    GTest::gtest_main
-    Qt${QT_VERSION}::Test
-)
-
-# 如果项目有自定义库，添加
-if(PROJECT_LIBRARIES)
-    target_link_libraries(test_{module_name}
-        PRIVATE
-        ${PROJECT_LIBRARIES}
-    )
-endif()
-
-# 包含目录
-target_include_directories(test_{module_name}
-    PRIVATE
-    ${{CMAKE_SOURCE_DIR}}/autotests/3rdparty/stub
-    ${{CMAKE_SOURCE_DIR}}/{source_module_path}
-)
-
-# 如果有其他依赖的包含目录，添加
-if(OTHER_INCLUDE_DIRS)
-    target_include_directories(test_{module_name}
-        PRIVATE
-        ${OTHER_INCLUDE_DIRS}
-    )
-endif()
-
-# 自动发现测试
-gtest_discover_tests(test_{module_name})
-
-message(STATUS "UT: test_{module_name} configured with ${TEST_SOURCES}")
-```
-
-### 智能合并 autotests/CMakeLists.txt
-
-**策略**:
-1. 读取现有内容
-2. 检查新的测试子目录是否已存在
-3. 如果不存在，智能追加
-4. 保持现有注释和格式
-
-**追加模板**:
-```cmake
-# ==================== 自动添加的测试模块 ====================
-
-if(EXISTS ${{CMAKE_CURRENT_SOURCE_DIR}}/{module_name})
-    add_subdirectory({module_name})
-    message(STATUS "UT: Added {module_name} tests")
-endif()
-
-# ==================== 自动添加的测试模块结束 ====================
-```
-
-## 构建验证规范
-
-### 验证步骤
-
-**步骤 1: 创建构建目录**
-
-```bash
-bash: mkdir -p build-autotests && cd build-autotests
-```
-
-**步骤 2: 配置 CMake**
-
-```bash
-bash: cmake .. -DCMAKE_BUILD_TYPE=Debug -DBUILD_TESTS=ON
-```
-
-**预期输出**: `Configuring done`, `Generating done`
-
-**步骤 3: 编译测试**
-
-```bash
-bash: cmake --build . -j$(nproc)
-```
-
-**预期输出**: `Built target test_{module_name}`, 无错误
-
-**步骤 4: 运行测试（可选）**
-
-```bash
-bash: ctest --output-on-failure -R test_{module_name}
-```
-
-**预期输出**: `100% tests passed`
-
-### 错误处理
-
-**常见错误和解决方案**:
-
-| 错误信息 | 原因 | 解决方案 |
-|---------|------|---------|
-| `undefined reference to` | 缺少链接库 | 添加 `target_link_libraries` |
-| `No such file or directory` | 缺少头文件 | 添加 `target_include_directories` |
-| `stub.set_lamda` 编译错误 | Stub 签名不匹配 | 使用 LSP 重新分析函数签名 |
-| `expected primary-expression` | 类型错误 | 检查函数返回类型和参数类型 |
-
-**修正流程**:
-1. 分析错误信息
-2. 定位问题（测试文件、Stub、CMake）
-3. 修正代码
-4. 重新编译直到成功
-
 ## 反馈用户
 
-### 成功反馈
+### 成功反馈（必须满足：编译成功）
+
+**仅在编译成功后才能报告完成！**
 
 ```
 ✓ 单元测试生成完成！
@@ -866,28 +711,67 @@ CMake 配置已更新：
    ./run-ut.sh
 ```
 
-### 失败反馈
+**成功条件检查清单**（必须全部满足）:
+- [x] 测试文件生成完成
+- [x] CMakeLists.txt 更新完成
+- [x] CMake 配置成功
+- [x] **编译成功（无错误）** ← **关键**
+- [x] 所有测试文件编译通过
+
+**如果任何一个条件不满足，不能报告成功！**
+
+### 失败反馈（编译验证失败）
 
 ```
 ✗ 单元测试生成失败
 
 错误：编译验证失败
 
-错误信息：
-[具体错误信息]
+错误类型：编译失败
+循环次数：10次（达到最大限制）
 
-修正建议：
-[具体修正建议]
+错误汇总：
+1. [错误1类型] [错误1信息] [重试3次，无法自动修正]
+2. [错误2类型] [错误2信息] [重试1次，已修正]
+3. [错误3类型] [错误3信息] [重试3次，无法自动修正]
 
-已生成部分文件：
-- test_myclass.cpp（部分完成）
-- autotests/ui/CMakeLists.txt（需要修正）
+修正尝试：
+错误1:
+  - 尝试1: [修正内容] -> 失败
+  - 尝试2: [修正内容] -> 失败
+  - 尝试3: [修正内容] -> 失败
 
-建议：
-1. 手动修正 CMakeLists.txt
-2. 检查 Stub 签名是否正确
-3. 重新运行 cmake 编译验证
+错误2:
+  - 尝试1: [修正内容] -> 成功
+
+错误3:
+  - 尝试1: [修正内容] -> 失败
+  - 尝试2: [修正内容] -> 失败
+  - 尝试3: [修正内容] -> 失败
+
+已生成文件（可能不完整）：
+- test_myclass.cpp（编译错误，需要修正）
+- autotests/ui/CMakeLists.txt（需要调整）
+
+手动修正建议：
+1. [错误1的详细修正建议]
+2. [错误3的详细修正建议]
+
+具体修正步骤：
+1. 查看 [错误1] 和 [错误3] 的编译错误
+2. 使用 LSP 工具重新分析对应函数的签名
+3. 对比 Stub 签名与实际签名
+4. 手动修正 Stub 签名（const, &, *, virtual）
+5. 运行 cmake 编译验证
+6. 如果问题持续，检查项目依赖是否正确安装
 ```
+
+**失败处理原则**:
+1. **不能告诉用户"测试已生成"**（如果编译失败）
+2. **必须报告编译失败**
+3. **必须提供详细的错误信息和修正建议**
+4. **必须记录修正尝试**
+5. **不能自动报告成功**（必须编译成功）
 
 ## 注意事项
 
@@ -896,6 +780,9 @@ CMake 配置已更新：
 3. **智能 CMake 合并**: 根据项目具体情况优化合并，确保通用性
 4. **支持增量更新**: 对比现有测试，补全未覆盖函数
 5. **必须验证构建**: 生成后运行 cmake 编译，确保可运行
-6. **不需要生成覆盖率报告**: 仅需验证当前测试，完整报告由 qt-unittest-build 提供
-7. **使用 LSP 工具**: lsp_document_symbols, lsp_goto_definition, lsp_find_references
-8. **Stub 签名必须精确**: 使用 LSP 获取精确函数签名，避免猜测
+6. **编译必须成功才能报告完成**: 绝对不能在编译失败时告诉用户"测试已生成"
+7. **编译失败必须自我修正**: 每个错误最多重试3次，最大循环10次
+8. **不需要生成覆盖率报告**: 仅需验证当前测试，完整报告由 qt-unittest-build 提供
+9. **使用 LSP 工具**: lsp_document_symbols, lsp_goto_definition, lsp_find_references
+10. **Stub 签名必须精确**: 使用 LSP 获取精确函数签名，避免猜测
+11. **不依赖外部文档**: 所有必要的知识已内化在本文档中

@@ -7,11 +7,12 @@ description: 为 Qt 项目生成单元测试代码。使用 LSP 分析类结构�
 
 ## Iron Laws
 
-1. **仅使用 Google Test**: 测试框架固定为 GTest，不支持 Qt Test
+1. **仅使用 Google Test**: 测试框架固定为 GTest
 2. **100% 函数覆盖率**: 每个 public/protected 函数必须至少一个测试用例
-3. **智能 CMake 合并**: 让 AI 根据项目具体情况优化合并，确保通用性
+3. **智能 CMake 合并**: 根据项目实际情况优化，确保通用性
 4. **支持增量更新**: 对比现有测试，补全未覆盖函数
-5. **必须验证构建**: 生成后运行 cmake 编译，确保可运行
+5. **必须验证构建**: 生成后必须编译成功才能报告完成
+6. **编译失败必须修正**: 每个错误最多重试3次，最大循环10次
 
 ## When to Use
 
@@ -25,12 +26,12 @@ description: 为 Qt 项目生成单元测试代码。使用 LSP 分析类结构�
 
 ### 步骤 2: 分析类结构
 
-**模块批量生成**: glob 扫描目录所有 `.h/.hpp`，提取类名。
+**模块批量**: glob 扫描 `.h/.hpp`，提取类名。
 
 **单个类**: 直接分析指定类。
 
 使用 LSP 工具：
-- `lsp_document_symbols` - 提取类结构（方法、属性、信号、槽）
+- `lsp_document_symbols` - 提取类结构
 - `lsp_goto_definition` - 读取函数实现
 - `lsp_find_references` - 查找依赖
 
@@ -41,28 +42,40 @@ description: 为 Qt 项目生成单元测试代码。使用 LSP 分析类结构�
 **测试设计**:
 - 每个函数至少一个测试用例
 - 边界条件、错误处理、特殊场景
-- 命名规范：`{Feature}_{Scenario}_{ExpectedResult}`
+- 命名：`{Feature}_{Scenario}_{ExpectedResult}`
 
 ### 步骤 4: 生成 Stub 插桩
 
-基于 UNIT_TEST_GUIDE.md 标准模式：
+使用 LSP 精确获取函数签名，生成 Stub：
 - UI 显示/隐藏：`&QWidget::show`, `&QWidget::hide`
 - 对话框执行：`VADDR(QDialog, exec)`
 - 信号监听：`QSignalSpy`
 - 虚函数：`VADDR(Class, method)`
 - 重载函数：`static_cast<...>`
 
-### 步骤 5: 增量更新（如存在测试）
+### 步骤 5: 增量更新
 
-对比已测试函数 vs 所有函数，为未覆盖函数补全测试用例。
+对比已测试 vs 所有函数，为未覆盖函数补全测试用例。
 
 ### 步骤 6: 智能合并 CMake
 
-让 AI 根据项目具体情况优化合并 `autotests/CMakeLists.txt`，确保通用性和可维护性。
+根据项目实际情况优化合并，确保通用性：
+- 分析现有 CMakeLists.txt 风格
+- 使用变量而非硬编码
+- 保持项目现有链接和包含模式
 
-### 步骤 7: 验证构建
+### 步骤 7: 验证构建（强制性）
 
-运行 `cmake --build .` 确保测试可编译。
+**重试逻辑**:
+- 每个编译错误最多重试3次
+- 所有错误都修正后重新编译
+- 最大循环10次（防止无限循环）
+- 编译成功后才能报告完成
+
+**失败处理**:
+- 10次循环后仍未成功
+- 报告详细的错误分析和修正建议
+- 绝不告诉用户"测试已生成"
 
 ## Red Flags
 
@@ -71,23 +84,29 @@ description: 为 Qt 项目生成单元测试代码。使用 LSP 分析类结构�
 - ❌ 硬编码 CMake 模板
 - ❌ 不验证构建
 - ❌ 不支持增量更新
-- ❌ 生成项目级覆盖率报告（仅需验证当前测试）
+- ❌ 编译失败仍报告完成
+- ❌ 跳过验证步骤
+- ❌ 编译错误不修正
 
 ## Quick Reference
 
 **测试文件命名**: `test_myclass.cpp`
+
 **测试类命名**: `MyClassTest`
+
 **测试用例命名**: `{Feature}_{Scenario}_{ExpectedResult}`
+
 **LSP 工具**: `lsp_document_symbols`, `lsp_goto_definition`, `lsp_find_references`
+
 **Stub 模式**: `&Class::method`, `VADDR(Class, method)`, `static_cast<...>`
 
 ## 子 Agent 调用
 
 调用 `agent/unittest-generator.md` 执行测试代码生成：
-- 分析项目结构
-- 生成测试文件
+- 分析项目结构（LSP）
+- 生成测试文件（100% 覆盖率）
 - 智能合并 CMake
-- 验证构建
+- 验证构建（每个错误重试3次，最大循环10次）
 
 ## 常见错误
 
@@ -95,5 +114,7 @@ description: 为 Qt 项目生成单元测试代码。使用 LSP 分析类结构�
 |------|------|------|
 | 测试框架不存在 | 未运行 qt-unittest-build | 提示用户先运行框架构建技能 |
 | 覆盖率不足 | 未分析所有函数 | 确保 lsp_document_symbols 提取完整 |
-| CMake 合并失败 | 硬编码模板 | 使用 AI 智能合并，根据项目实际情况优化 |
+| CMake 合并失败 | 硬编码模板 | 根据项目实际情况智能合并 |
 | 编译失败 | Stub 签名错误 | 使用 LSP 获取精确签名 |
+| 编译失败仍报告完成 | 跳过验证或验证不严谨 | 必须编译成功才能报告用户 |
+| 多个错误未修正 | 全局重试3次不足 | 每个错误重试3次，最大循环10次 |

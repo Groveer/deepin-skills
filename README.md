@@ -143,6 +143,48 @@ lsp_goto_definition src/myclass.cpp ClassName::methodName
 lsp_find_references src/myclass.h ClassName
 ```
 
+#### [qt-unittest-make](qt-unittest-make/) ⭐ **新增**
+
+**Purpose**: 为 Qt 项目生成单元测试代码，使用 LSP 分析类结构，自动生成 100% 函数覆盖率的测试用例。支持模块批量生成和单个类增量补全。
+
+**When to use**: 用户请求为指定模块或类创建单元测试，补全测试用例，或创建测试文件。
+
+**Key features**:
+- **100% 函数覆盖率**: 自动为每个 public/protected 函数生成测试用例
+- **智能 LSP 分析**: 使用 `lsp_document_symbols`, `lsp_goto_definition`, `lsp_find_references` 精确分析类结构
+- **Stub 智能生成**: 内化完整的 Stub 模式库，自动生成 UI、信号、虚函数、重载函数的 Stub
+- **智能 CMake 合并**: 根据项目具体情况优化合并，确保通用性
+- **支持增量更新**: 对比现有测试，补全未覆盖的函数
+- **强制验证构建**: 生成后必须编译成功才能报告完成
+- **严谨错误处理**: 每个编译错误最多重试 3 次，最大循环 10 次
+
+**Resources**:
+- `SKILL.md` - 技能文档（任务路由器）
+- `agent/unittest-generator.md` - 子 Agent（测试代码生成器）
+- `resources/templates/` - 测试代码模板（google_test_base.cpp, stub_patterns.cpp, cmake_module.txt）
+- `README.md` - 详细使用文档
+
+**Usage**:
+```bash
+# 为模块批量生成测试
+为 src/lib/ui 模块创建单元测试
+
+# 为单个类创建/补全测试
+为 MyClass 创建单元测试
+为 MyClass 补全测试
+```
+
+**执行流程**:
+1. Skill 触发 → 子 Agent 自动调用
+2. 分析项目结构（LSP）→ 生成测试文件（100% 覆盖率）
+3. 智能合并 CMake 配置 → 验证构建（必须成功）
+
+**关键特性**:
+- ✅ 不依赖外部文档（所有知识已内化）
+- ✅ 重试逻辑清晰（每个错误重试 3 次，最大循环 10 次）
+- ✅ 错误分类完善（5 类错误处理）
+- ✅ 验证约束强制（编译必须成功才能报告完成）
+
 ### Qt Translation Assistant Skills
 
 #### [qt-translation-assistant](qt-translation-assistant/)
