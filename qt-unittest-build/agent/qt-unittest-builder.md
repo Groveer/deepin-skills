@@ -90,7 +90,7 @@ cmake_minimum_required(VERSION 3.16)
 project(autotests VERSION 1.0.0 LANGUAGES CXX)
 
 # CMake 工具目录
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake")
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 # 初始化测试环境
 include(UnitTestUtils)
@@ -113,7 +113,7 @@ cmake_minimum_required(VERSION 3.16)
 project(autotests VERSION 1.0.0 LANGUAGES CXX)
 
 # CMake 工具目录
-set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake")
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
 # 初始化测试环境
 include(UnitTestUtils)

@@ -51,6 +51,14 @@ autotests/
 4. 生成测试文档（README.md）
 5. **验证构建**：运行 cmake 配置和编译，确保测试框架可以正常运行
 
+### 步骤 5：拷贝报告生成器
+
+将 `resources/report_generator/` 目录（完整的报告生成模块）拷贝到 `autotests/report_generator/`：
+- main.py：主报告生成器
+- parsers/：测试和覆盖率解析器
+- generators/：HTML 和 CSV 生成器
+- utils/：工具函数（ui_utils, file_utils）
+
 ## Red Flags（停止信号）
 
 以下情况立即停止执行：
