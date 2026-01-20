@@ -2,7 +2,7 @@
 
 ## Overview
 
-This directory contains a collection of skills for deepin project development, covering various aspects of Qt/C++ development.
+This directory contains a collection of skills for deepin project development, covering Qt/C++ development, translation management, and release automation.
 
 ## Skills Directory
 
@@ -123,6 +123,52 @@ python translate.py /path/to/specific/file.ts
 python translate.py --create-config
 ```
 
+### Release Management Skills
+
+#### [create-release-tags](create-release-tags/)
+
+**Purpose**: Automates Debian package version releases by updating debian/changelog and linglong.yaml (if present), generating change summaries from git log, and creating version commits.
+
+**When to use**: Releasing new versions for Debian-based projects, preparing test releases, bumping version numbers with changelog updates, or projects with/without linglong.yaml.
+
+**Key features**:
+- **Version management**: Supports explicit version specification or auto-increment (patch only)
+- **Changelog automation**: Generates change summaries from git log between version tags
+- **Multi-format support**: Handles both debian/changelog and linglong.yaml (including arch-specific variants)
+- **Standard commit format**: Creates commits following deepin project conventions
+- **Linglong version handling**: Updates only first three version parts (X.Y.Z.1 pattern)
+- **Author integration**: Uses git config user.name/user.email for changelog entries
+
+**Resources**:
+- `SKILL.md` - Skill documentation
+
+**Usage**:
+```bash
+# Release specific version
+tag release 6.5.47
+
+# Auto-increment patch version
+tag release
+
+# Prepare test version
+tag prepare-test 6.5.47
+
+# Alternative trigger phrases
+release new version
+bump version
+update version
+prepare for release
+```
+
+**Execution Flow**:
+1. Detect project type (debian/changelog, linglong.yaml presence)
+2. Determine target version (specified or auto-increment patch)
+3. Generate change summary from git log since last tag
+4. Get author info from git config
+5. Update debian/changelog with proper formatting
+6. Update all linglong.yaml files (X.Y.Z.N → X.Y.Z.N)
+7. Create commit with standard message format
+
 ## Dependencies
 
 ### Framework Skill
@@ -145,6 +191,18 @@ python translate.py --create-config
 **Testing libraries**:
 - Google Test (gtest/gmock)
 - stub-ext (from framework skill)
+
+### Release Management Skill
+
+**System requirements**:
+- git
+- bash
+- date (RFC 2822 format support: `date -R`)
+- sed, find (standard Unix utilities)
+
+**Git configuration** (required):
+- git config user.name
+- git config user.email
 
 ## Testing Workflow
 
@@ -176,11 +234,13 @@ deepin-skills/
 │   ├── SKILL.md                               # Skill documentation
 │   ├── agent/unittest-generator.md            # Subagent
 │   └── README.md                              # Detailed usage documentation
- └── qt-translation-assistant/                  # Translation assistant skill
-     ├── SKILL.md                               # Skill documentation
-     ├── translate.py                           # Main script with parallel processing
-     ├── README.md                              # Detailed usage documentation
-     └── test_format_preservation.py            # Format preservation test
+├── qt-translation-assistant/                  # Translation assistant skill
+│   ├── SKILL.md                               # Skill documentation
+│   ├── translate.py                           # Main script with parallel processing
+│   ├── README.md                              # Detailed usage documentation
+│   └── test_format_preservation.py            # Format preservation test
+└── create-release-tags/                       # Release management skill
+    └── SKILL.md                               # Skill documentation
 ```
 
 ## Adding New Skills
@@ -221,8 +281,9 @@ Each skill includes:
 - qt-unittest-build: <500 words
 - qt-unittest-make: <500 words
 - qt-translation-assistant: <500 words
+- create-release-tags: <1000 words (technique skill with implementation details)
 
-All under 500-word limit for efficient context usage.
+Most skills under 500-word limit for efficient context usage.
 
 ## Compatibility
 
