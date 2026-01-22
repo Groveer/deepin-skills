@@ -187,6 +187,53 @@ commit changes
 - ✅ 强制确认（绝不自动提交）
 - ✅ 格式约束（80 字符限制、中英文双语）
 
+### Qt Compatibility Build Skills
+
+#### [qt-compatibility-build](qt-compatibility-build/) ⭐ **推荐**
+
+**Purpose**: 为 Qt/CMake 项目实现 deepin V25/V20 双版本支持，消除硬编码的 Qt5/Qt6 和 DTK5/DTK6 版本引用，实现自动检测和动态库链接。
+
+**When to use**: CMakeLists.txt 中存在硬编码的 `Qt5::`/`Qt6::` 或 `Dtk::`/`Dtk6::`，需要统一配置支持 V25 (Qt6) 和 V20 (Qt5) 版本时。
+
+**Key features**:
+- **自动 Qt 检测**: `find_package(QT NAMES Qt6 Qt5 ...)` 自动检测
+- **动态 DTK 映射**: Qt6 → DTK6，Qt5 → DTK5 基于检测自动映射
+- **库链接变量化**: `Qt${QT_VERSION_MAJOR}::` 和 `Dtk${DTK_VERSION_MAJOR}::` 消除硬编码
+- **独立 Control 文件**: debian/control (V25) 和 debian/control.1 (V20) 分离管理
+- **紧凑文档**: 864 词快速参考，仅保留核心模式和必要示例
+
+**文件规范**:
+| 文件 | Deepin 版本 | Qt 版本 |
+|------|------------|---------|
+| `debian/control` | V25 | Qt6 |
+| `debian/control.1` | V20 | Qt5 |
+
+**Resources**:
+- `SKILL.md` - 技能文档（紧凑参考，仅核心模式）
+
+**Usage**:
+```bash
+# 添加 Qt5/Qt6 兼容支持
+add Qt5/Qt6 dual version support
+update CMakeLists.txt for Qt5/Qt6
+fix hard-coded Qt versions in CMake
+```
+
+**执行流程**:
+1. 添加 Qt 检测：`find_package(QT NAMES Qt6 Qt5 REQUIRED COMPONENTS Core)`
+2. 添加 DTK 映射：`if (QT_VERSION_MAJOR MATCHES 6) set(DTK_VERSION_MAJOR 6)`
+3. 替换所有 find_package：`Qt${QT_VERSION_MAJOR}` / `Dtk${DTK_VERSION_MAJOR}`
+4. 替换所有 target_link_libraries：`Qt${QT_VERSION_MAJOR}::` / `Dtk${DTK_VERSION_MAJOR}::`
+5. 创建 debian/control (V25) 和 debian/control.1 (V20)
+6. 验证 V25 编译和 V20 编译
+
+**关键特性**:
+- ✅ 消除硬编码版本引用
+- ✅ 单一 CMake 配置适应 Qt5/Qt6
+- ✅ 快速参考表格（替换模式）
+- ✅ 精准 Common Mistakes 表格
+- ✅ Red Flags 速查清单
+
 ### Release Management Skills
 
 #### [create-release-tags](create-release-tags/)
@@ -277,6 +324,19 @@ prepare for release
 - git config user.name
 - git config user.email
 
+### Qt Compatibility Build Skill
+
+**System requirements**:
+- cmake (3.1.0+)
+- gcc/g++ or other C++ compiler
+- V25 dependencies (for Qt6 builds): qt6-base-dev, libdtk6widget-dev, etc.
+- V20 dependencies (for Qt5 builds): qtbase5-dev, libdtkwidget-dev, etc.
+
+**AI Agent requirements**:
+- Bash tool support
+- File read/write tools for CMakeLists.txt and debian/control
+- Edit/Write tools for code compatibility code (if needed)
+
 ## Testing Workflow
 
 1. **Generate framework** (qt-unittest-build):
@@ -315,6 +375,8 @@ prepare for release
 ```
 deepin-skills/
 ├── README.md                                  # This file
+├── qt-compatibility-build/                    # Qt5/Qt6 auto-detection compatibility skill
+│   └── SKILL.md                               # Skill documentation
 ├── git-commit-workflow/                       # Git workflow skill
 │   ├── SKILL.md                               # Skill documentation
 │   ├── README.md                              # Detailed usage documentation
@@ -374,9 +436,10 @@ Each skill includes:
 - qt-unittest-build: <500 words
 - qt-unittest-make: <500 words
 - qt-translation-assistant: <500 words
+- qt-compatibility-build: 864 words (technique skill with CMake patterns and dependency mapping)
 - create-release-tags: <1000 words (technique skill with implementation details)
 
-Most skills under 500-word limit for efficient context usage.
+Most skills under 500-word limit for efficient context usage. Technique skills with implementation details may exceed this limit but should remain concise.
 
 ## Compatibility
 
