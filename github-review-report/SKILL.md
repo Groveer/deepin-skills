@@ -106,6 +106,12 @@ digraph github_review_flow {
 - Purpose: Preserve formatting (width, colors, fonts, borders, header styles)
 - Read before generating, write only new data rows
 
+**Font specification:**
+- **Required font:** "CESI宋体-GB18030" (CESI Songti GB18030)
+- Template must use this font for Chinese characters to ensure proper rendering
+- When creating template, apply this font to all cells containing Chinese text
+- If template doesn't exist, programmatically set font when creating Excel
+
 **Two-phase workflow:**
 1. Collect data (GitHub API) → Store original reviews
 2. AI analyze each review → Generate problem description, impact analysis
@@ -143,6 +149,31 @@ Filter by branch: append `base:master` to search query.
 
 **Important:** This is DATA COLLECTION only. Do NOT summarize or process reviews yet. Store original content.
 
+**Filter Version Update Commits:**
+Skip PRs that are version updates only. Use `is_version_update_pr()` to filter out:
+- PR titles matching: `Update version to X.Y.Z`, `Bump version to X.Y.Z`, `Version X.Y.Z`
+- PRs with only version changes in commits
+- Commits by `deepin-ci-robot` (considered invalid, see Step 5)
+
+```python
+def is_version_update_pr(pr):
+    """Check if PR is only about version update"""
+    title = pr.get('title', '').lower()
+    patterns = [
+        r'^update version to \d+\.\d+\.\d+',
+        r'^bump version to \d+\.\d+\.\d+',
+        r'^version \d+\.\d+\.\d+$',
+    ]
+    for pattern in patterns:
+        if re.search(pattern, title):
+            return True
+    return False
+
+# Filter out version update PRs
+if is_version_update_pr(pr):
+    continue
+```
+
 ### Step 3: Filter Reviewers
 
 Use `should_include_reviewer()` in `generator.py` with fnmatch patterns:
@@ -156,6 +187,62 @@ Use `should_include_reviewer()` in `generator.py` with fnmatch patterns:
 
 **Important:** Only validate reviewer identity, NOT review content quality. Keep all valid reviews for AI analysis.
 
+**Reviewer Definitions:**
+- **提出人 (Proposed by):** The person who submitted the review comments on the PR
+- **解决人 (Resolved by):** The person who submitted/merged the PR (mergedBy field)
+
+These fields are distinct - one provides review feedback, the other implements the changes.
+
+**Priority: Human over AI:**
+When both human and AI reviews exist on the same PR:
+- If a human reviewer (e.g., zhangs, liuzheng) added review comments: **ONLY include human reviews, ignore AI reviews**
+- If only AI reviews exist (e.g., sourcery-ai): Include those
+- **AI reviewers to exclude:** sourcery-ai, sourcery-bot, deepin-ci-robot
+- **Example:** If PR has reviews from zhangs (human) and sourcery-ai (AI), only include zhangs's review
+
+```python
+def should_include_reviewer(author):
+    """Check if reviewer should be included in report"""
+
+    # Always exclude invalid automated accounts
+    EXCLUDE_REVIEWERS = [
+        'deepin-ci-robot',
+        'sourcery-ai',
+        'sourcery-bot',
+    ]
+
+    if author in EXCLUDE_REVIEWERS:
+        return False
+
+    # Include by default for other users
+    return True
+
+def prioritize_human_reviews(reviews):
+    """Filter reviews to prioritize human over AI"""
+
+    # Check if any human review exists
+    has_human = any(
+        not should_exclude_as_ai(review['author']['login'])
+        for review in reviews
+    )
+
+    # If human reviews exist, exclude all AI reviews
+    if has_human:
+        return [
+            review for review in reviews
+            if not should_exclude_as_ai(review['author']['login'])
+        ]
+    else:
+        # If only AI reviews, include all
+        return reviews
+```
+
+**Reviewer Definitions:**
+- **提出人 (Proposed by):** The person who submitted the review comments on the PR
+- **解决人 (Resolved by):** The person who submitted/merged the PR (mergedBy field)
+
+These fields are distinct - one provides review feedback, the other implements the changes.
+
 ### Step 4: Fetch PR Details (Data Collection Phase)
 
 For each PR, use `gh pr view` to get full data:
@@ -166,6 +253,11 @@ gh pr view ${pr_number} --repo linuxdeepin/dde-cooperation \
 ```
 
 **Important:** Collect ALL reviews (valid and invalid), but only send VALID reviews to AI. This allows AI to judge validity.
+
+**Ignore Invalid Commits:**
+- **deepin-ci-robot:** All commits by this user are considered invalid and should be excluded
+- **Version updates:** PRs with titles matching version update patterns (see Step 2)
+- These should be filtered out before review extraction to avoid cluttering the report
 
 ### Step 5: Extract Original Reviews
 
@@ -256,13 +348,13 @@ for review in valid_reviews:
         '严重程度': result.get('severity', '一般'),
         '影响分析': result['impact_analysis'],
         '问题类型': PROBLEM_TYPES.get(result['problem_type'], '其他'),
-        '提出人': review['reviewer'],
+        '提出人': review['reviewer'],  # Reviewer who submitted the review comment
         '提出时间': review_date_only,
-        '解决人': merged_by,
+        '解决人': merged_by,  # Person who submitted/merged the PR
         '计划解决时间': merged_date_only,
         '实际解决时间': merged_date_only,
         '提出人确认是否验收通过': "是",
-        '问题状态': problem_status,
+        '问题状态': problem_status,  # "Close" if merged, "Open" otherwise
     })
 ```
 
@@ -287,6 +379,22 @@ required_columns = ['序号', '包名', '仓库地址', '代码提交地址', '�
 if set(required_columns) != set(df_template.columns):
     print("⚠️ Template column mismatch. Creating basic template.")
     df_template = pd.DataFrame(columns=required_columns)
+
+    # If creating template, set required font
+    from openpyxl.styles import Font
+
+    # Load workbook to set styles
+    wb = load_workbook(template_path) if os.path.exists(template_path) else Workbook()
+    ws = wb.active
+
+    # Set font for header and data rows
+    chinese_font = Font(name='CESI宋体-GB18030', size=11)
+
+    for row in ws.iter_rows():
+        for cell in row:
+            cell.font = chinese_font
+
+    wb.save(template_path)
 ```
 
 **Template preservation rules:**
@@ -294,6 +402,7 @@ if set(required_columns) != set(df_template.columns):
 - Append data using `pd.concat()` or direct indexing
 - Save with `to_excel(index=False, engine='openpyxl')`
 - Template styling (widths, borders, colors, header styles) will be preserved
+- **Font requirement:** Use "CESI宋体-GB18030" for all Chinese text
 
 ### Step 8: Generate Excel Report
 
@@ -369,13 +478,13 @@ AI_PROMPT_TEMPLATE = """
 | 严重程度 | 问题类型8(安全)、12(内存)="严重"，其他="一般" | AI判断 |
 | 影响分析 | AI生成的影响分析（≤20字或"无"） | AI分析结果 |
 | 问题类型 | 映射表（1-15） | AI分类结果 |
-| 提出人 | reviewer登录名 | GitHub API |
+| 提出人 | reviewer登录名（提出review备注的人） | GitHub API |
 | 提出时间 | YYYY-MM-DD格式 | review['submittedAt'] |
-| 解决人 | mergedBy登录名 | GitHub API |
+| 解决人 | mergedBy登录名（提交PR的人） | GitHub API |
 | 计划解决时间 | mergedAt YYYY-MM-DD | GitHub API |
 | 实际解决时间 | mergedAt YYYY-MM-DD | GitHub API |
 | 提出人确认是否验收通过 | 固定值"是" | 硬编码 |
-| 问题状态 | merged="关闭", not merged="解决中" | 判断逻辑 |
+| 问题状态 | merged="Close", not merged="Open" | 判断逻辑 |
 
 ### Time Range Examples
 
@@ -419,6 +528,11 @@ gh pr view 123 --repo linuxdeepin/dde-cooperation \
 | Processing reviews individually | Slows down AI | Batch process: collect all, then send to AI as array |
 | Missing error handling | AI may fail | Try-catch and provide meaningful error messages |
 | Wrong default problem source value | Default should be "代码"(2), not "注释"(3) | Use result.get('problem_source', 2) and map correctly |
+| **Using Chinese for "问题状态"** | Must be English "Close" or "Open" | Change merged="关闭" to merged="Close" |
+| **Not filtering version update PRs** | Clutters report with non-code changes | Filter out "Update version to X.Y.Z" PRs |
+| **Including deepin-ci-robot commits** | Automated commits are not real reviews | Exclude deepin-ci-robot entirely |
+| **Not prioritizing human reviews** | AI reviews are lower quality than humans | Filter out AI reviews when human reviews exist |
+| **Not using correct Chinese font** | Text rendering may break | Use "CESI宋体-GB18030" for all Chinese text |
 
 ## Rationalization Table
 
@@ -430,6 +544,10 @@ gh pr view 123 --repo linuxdeepin/dde-cooperation \
 | "Can just use keyword matching" | Simple matching misses nuance | AI understands context and semantics |
 | "Need to implement AI model" | Use available AI tools or services | Not implementing from scratch |
 | "JSON parsing is error-prone" | AI returns structured JSON | Use proper error handling |
+| "Chinese text works with default font" | Chinese characters may not render correctly | Use "CESI宋体-GB18030" for proper rendering |
+| "deepin-ci-robot commits should be included" | They are automated, not human reviews | Exclude automated accounts entirely |
+| "AI reviews are useful too" | Human reviews have higher quality and priority | Filter out AI when human reviews exist |
+| "Version updates need review too" | They are routine changes, not code review | Filter out version update PRs |
 
 ## Red Flags - STOP and Start Over
 
@@ -443,5 +561,9 @@ gh pr view 123 --repo linuxdeepin/dde-cooperation \
 - Changing reviewer/column specifications without skill update
 - Hardcoding problem source default value to anything other than "代码"(2)
 - Not letting AI determine problem source (use AI's judgment, don't assume)
+- **Using Chinese for "问题状态" (must be "Close" or "Open")**
+- **Not ignoring deepin-ci-robot commits**
+- **Including AI reviews when human reviews exist**
+- **Not using "CESI宋体-GB18030" font for Chinese text**
 
 **All of these mean: STOP. Re-read skill. Start over with correct two-phase approach.**
